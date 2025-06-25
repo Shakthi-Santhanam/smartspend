@@ -59,7 +59,6 @@ with st.form("expense_form"):
     description = st.text_input("Description", value=st.session_state['ocr_description'])
     amount = st.number_input("Amount (₹)", min_value=0.0, step=0.5, value=st.session_state['ocr_amount'])
 
-    # Predict category using ML model
     predicted_category = model.predict([description])[0] if description else "Others"
     st.markdown(f"**Predicted Category:** `{predicted_category}`")
 
@@ -82,7 +81,6 @@ uploaded_file = st.file_uploader("Upload a receipt image (JPG/PNG)", type=["jpg"
 if uploaded_file:
     image = Image.open(uploaded_file)
 
-    # Resize large image
     MAX_WIDTH = 800
     if image.width > MAX_WIDTH:
         scale = MAX_WIDTH / image.width
@@ -93,7 +91,6 @@ if uploaded_file:
 
     with st.spinner("🔍 Scanning for text (this may take a few seconds)..."):
         try:
-            # Convert to grayscale and threshold
             image_np = np.array(image)
             gray = cv2.cvtColor(image_np, cv2.COLOR_RGB2GRAY)
             _, thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
@@ -103,7 +100,6 @@ if uploaded_file:
             extracted_text = " ".join(result)
             st.markdown(f"📝 **Extracted Text:** `{extracted_text}`")
 
-            # Extract amount
             amounts = re.findall(r'₹\s?\d+\.?\d*', extracted_text) or re.findall(r'\d+\.\d{2}', extracted_text)
             detected_amount = amounts[0] if amounts else "Not found"
             st.markdown(f"💰 **Detected Amount:** `{detected_amount}`")
@@ -115,30 +111,47 @@ if uploaded_file:
                 except:
                     st.session_state['ocr_amount'] = 0.0
                 st.experimental_rerun()
-
         except Exception as e:
             st.error(f"❌ OCR failed: {str(e)}")
 
 # ------------------ EXPENSE HISTORY ------------------
 st.header("📒 Expense History")
 
-cursor.execute(
-    "SELECT date, category, description, amount FROM expenses WHERE user = ? ORDER BY date DESC",
-    (user_id,)
-)
-rows = cursor.fetchall()
+with st.expander("🔍 Filter Your Expenses", expanded=False):
+    start_date = st.date_input("Start Date", value=datetime(2023, 1, 1), key="start_date")
+    end_date = st.date_input("End Date", value=datetime.today(), key="end_date")
 
+    cursor.execute("SELECT DISTINCT category FROM expenses WHERE user = ?", (user_id,))
+    categories = [row[0] for row in cursor.fetchall()]
+    selected_categories = st.multiselect("Select Categories", options=categories, default=categories)
+
+# Safeguard: Avoid query error if no categories selected
+if selected_categories:
+    placeholders = ",".join("?" for _ in selected_categories)
+    query = f"""
+        SELECT date, category, description, amount 
+        FROM expenses 
+        WHERE user = ? 
+        AND date BETWEEN ? AND ? 
+        AND category IN ({placeholders})
+        ORDER BY date DESC
+    """
+    params = [user_id, str(start_date), str(end_date)] + selected_categories
+    cursor.execute(query, params)
+    rows = cursor.fetchall()
+else:
+    rows = []
+
+# ------------------ DISPLAY DATA ------------------
 if rows:
     df = pd.DataFrame(rows, columns=["Date", "Category", "Description", "Amount"])
     st.dataframe(df, use_container_width=True)
 
-    # ------------------ SUMMARY ------------------
     st.header("📊 Summary")
-
     total = df["Amount"].sum()
     st.subheader(f"💰 Total Spent: ₹{total:.2f}")
 
     category_summary = df.groupby("Category")["Amount"].sum().reset_index()
     st.bar_chart(category_summary.set_index("Category"))
 else:
-    st.info("No expenses found yet. Start by adding one above!")
+    st.info("No expenses found for selected filters.")
