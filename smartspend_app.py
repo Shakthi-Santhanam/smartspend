@@ -28,12 +28,13 @@ conn.commit()
 st.set_page_config(page_title="SmartSpend", layout="centered")
 st.title("💸 SmartSpend - AI Expense Tracker")
 
-# ------------------ USER INPUT ------------------
-st.sidebar.header("👤 User Info")
-user_id = st.sidebar.text_input("Enter your email", key="user_id")
+# ------------------ USER INPUT ON MAIN SCREEN ------------------
+st.subheader("👤 Enter Your Email to Continue")
+
+user_id = st.text_input("Email", key="user_id_input", placeholder="example@email.com")
 
 if not user_id:
-    st.warning("Please enter your email to start using the app.")
+    st.warning("Please enter your email to access SmartSpend features.")
     st.stop()
 else:
     st.success(f"Welcome, **{user_id}**!")
