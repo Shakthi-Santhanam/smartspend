@@ -7,8 +7,6 @@ from PIL import Image
 import numpy as np
 import easyocr
 import re
-import pytesseract
-import cv2
 
 # ------------------ DATABASE SETUP ------------------
 conn = sqlite3.connect('expenses.db', check_same_thread=False)
@@ -79,21 +77,23 @@ if uploaded_file:
 
     st.image(image, caption="Uploaded Receipt", use_container_width=True)
 
-    with st.spinner("🔍 Scanning for text (OCR)..."):
+    with st.spinner("🔍 Scanning for text (this may take a few seconds)..."):
         try:
-            import pytesseract
+            import easyocr
             import cv2
 
-            # Convert to OpenCV format and preprocess
+            # Preprocess: convert to grayscale and threshold
             image_np = np.array(image)
             gray = cv2.cvtColor(image_np, cv2.COLOR_RGB2GRAY)
             _, thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
 
-            # OCR using pytesseract
-            extracted_text = pytesseract.image_to_string(thresh)
+            # Use easyocr on the preprocessed image
+            reader = easyocr.Reader(['en'], gpu=False)
+            result = reader.readtext(thresh, detail=0)
+            extracted_text = " ".join(result)
             st.markdown(f"📝 **Extracted Text:** `{extracted_text}`")
 
-            # Try to extract amount
+            # Extract amount
             import re
             amounts = re.findall(r'₹\s?\d+\.?\d*', extracted_text) or re.findall(r'\d+\.\d{2}', extracted_text)
             detected_amount = amounts[0] if amounts else "Not found"
@@ -109,6 +109,7 @@ if uploaded_file:
 
         except Exception as e:
             st.error(f"❌ OCR failed: {str(e)}")
+
 
 # ------------------ EXPENSE HISTORY ------------------
 st.header("📒 Expense History")
