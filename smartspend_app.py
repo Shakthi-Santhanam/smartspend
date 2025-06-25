@@ -7,6 +7,7 @@ from PIL import Image
 import numpy as np
 import easyocr
 import re
+import cv2
 
 # ------------------ DATABASE SETUP ------------------
 conn = sqlite3.connect('expenses.db', check_same_thread=False)
@@ -14,6 +15,7 @@ cursor = conn.cursor()
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS expenses (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user TEXT,
     date TEXT,
     category TEXT,
     description TEXT,
@@ -25,6 +27,16 @@ conn.commit()
 # ------------------ STREAMLIT APP ------------------
 st.set_page_config(page_title="SmartSpend", layout="centered")
 st.title("💸 SmartSpend - AI Expense Tracker")
+
+# ------------------ USER INPUT ------------------
+st.sidebar.header("👤 User Info")
+user_id = st.sidebar.text_input("Enter your email", key="user_id")
+
+if not user_id:
+    st.warning("Please enter your email to start using the app.")
+    st.stop()
+else:
+    st.success(f"Welcome, **{user_id}**!")
 
 # ------------------ LOAD ML MODEL ------------------
 @st.cache_resource
@@ -47,14 +59,16 @@ with st.form("expense_form"):
     description = st.text_input("Description", value=st.session_state['ocr_description'])
     amount = st.number_input("Amount (₹)", min_value=0.0, step=0.5, value=st.session_state['ocr_amount'])
 
-    # Predict category
+    # Predict category using ML model
     predicted_category = model.predict([description])[0] if description else "Others"
     st.markdown(f"**Predicted Category:** `{predicted_category}`")
 
     submitted = st.form_submit_button("Add Expense")
     if submitted:
-        cursor.execute("INSERT INTO expenses (date, category, description, amount) VALUES (?, ?, ?, ?)",
-                       (str(date), predicted_category, description, amount))
+        cursor.execute(
+            "INSERT INTO expenses (user, date, category, description, amount) VALUES (?, ?, ?, ?, ?)",
+            (user_id, str(date), predicted_category, description, amount)
+        )
         conn.commit()
         st.success("✅ Expense added successfully!")
         st.session_state['ocr_description'] = ''
@@ -79,22 +93,17 @@ if uploaded_file:
 
     with st.spinner("🔍 Scanning for text (this may take a few seconds)..."):
         try:
-            import easyocr
-            import cv2
-
-            # Preprocess: convert to grayscale and threshold
+            # Convert to grayscale and threshold
             image_np = np.array(image)
             gray = cv2.cvtColor(image_np, cv2.COLOR_RGB2GRAY)
             _, thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
 
-            # Use easyocr on the preprocessed image
             reader = easyocr.Reader(['en'], gpu=False)
             result = reader.readtext(thresh, detail=0)
             extracted_text = " ".join(result)
             st.markdown(f"📝 **Extracted Text:** `{extracted_text}`")
 
             # Extract amount
-            import re
             amounts = re.findall(r'₹\s?\d+\.?\d*', extracted_text) or re.findall(r'\d+\.\d{2}', extracted_text)
             detected_amount = amounts[0] if amounts else "Not found"
             st.markdown(f"💰 **Detected Amount:** `{detected_amount}`")
@@ -110,21 +119,26 @@ if uploaded_file:
         except Exception as e:
             st.error(f"❌ OCR failed: {str(e)}")
 
-
 # ------------------ EXPENSE HISTORY ------------------
 st.header("📒 Expense History")
 
-df = pd.read_sql_query("SELECT * FROM expenses ORDER BY date DESC", conn)
-st.dataframe(df, use_container_width=True)
+cursor.execute(
+    "SELECT date, category, description, amount FROM expenses WHERE user = ? ORDER BY date DESC",
+    (user_id,)
+)
+rows = cursor.fetchall()
 
-# ------------------ SUMMARY ------------------
-st.header("📊 Summary")
+if rows:
+    df = pd.DataFrame(rows, columns=["Date", "Category", "Description", "Amount"])
+    st.dataframe(df, use_container_width=True)
 
-if not df.empty:
-    total = df['amount'].sum()
+    # ------------------ SUMMARY ------------------
+    st.header("📊 Summary")
+
+    total = df["Amount"].sum()
     st.subheader(f"💰 Total Spent: ₹{total:.2f}")
 
-    category_summary = df.groupby("category")['amount'].sum().reset_index()
-    st.bar_chart(category_summary.set_index("category"))
+    category_summary = df.groupby("Category")["Amount"].sum().reset_index()
+    st.bar_chart(category_summary.set_index("Category"))
 else:
-    st.info("No expenses yet. Add some above!")
+    st.info("No expenses found yet. Start by adding one above!")
