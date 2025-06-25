@@ -1,0 +1,8 @@
+streamlit
+pandas
+numpy
+pillow
+joblib
+scikit-learn
+easyocr
+torch
