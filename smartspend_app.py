@@ -39,31 +39,26 @@ if 'ocr_description' not in st.session_state:
 if 'ocr_amount' not in st.session_state:
     st.session_state['ocr_amount'] = 0.0
 
-# ------------------ Expense Entry Form ------------------
-st.header("💸 Add an Expense")
+# ------------------ EXPENSE FORM ------------------
+st.header("➕ Add New Expense")
 
-# Ask for user's name or email
-user_id = st.text_input("🔐 Enter your name or email")
+with st.form("expense_form"):
+    date = st.date_input("Date", datetime.today())
+    description = st.text_input("Description", value=st.session_state['ocr_description'])
+    amount = st.number_input("Amount (₹)", min_value=0.0, step=0.5, value=st.session_state['ocr_amount'])
 
-description = st.text_input("📝 Description", value=st.session_state.get('ocr_description', ''))
-amount = st.number_input("💰 Amount", min_value=0.0, value=st.session_state.get('ocr_amount', 0.0))
-date = st.date_input("📅 Date", value=datetime.date.today())
+    # Predict category
+    predicted_category = model.predict([description])[0] if description else "Others"
+    st.markdown(f"**Predicted Category:** `{predicted_category}`")
 
-if st.button("Save Expense"):
-    if not user_id:
-        st.warning("⚠️ Please enter your name or email before saving.")
-    elif not description:
-        st.warning("⚠️ Please enter a description.")
-    else:
-        cursor.execute("INSERT INTO expenses (user, description, amount, date) VALUES (?, ?, ?, ?)",
-                       (user_id, description, amount, str(date)))
+    submitted = st.form_submit_button("Add Expense")
+    if submitted:
+        cursor.execute("INSERT INTO expenses (date, category, description, amount) VALUES (?, ?, ?, ?)",
+                       (str(date), predicted_category, description, amount))
         conn.commit()
-        st.success("✅ Expense saved successfully!")
-
-        # Clear session state
+        st.success("✅ Expense added successfully!")
         st.session_state['ocr_description'] = ''
         st.session_state['ocr_amount'] = 0.0
-
 
 # ------------------ OCR RECEIPT SCANNER ------------------
 st.header("📷 Scan a Receipt")
@@ -116,21 +111,11 @@ if uploaded_file:
             st.error(f"❌ OCR failed: {str(e)}")
 
 
-# ------------------ Expense History ------------------
-st.header("📊 Your Expense History")
+# ------------------ EXPENSE HISTORY ------------------
+st.header("📒 Expense History")
 
-if user_id:
-    cursor.execute("SELECT description, amount, date FROM expenses WHERE user = ? ORDER BY date DESC", (user_id,))
-    rows = cursor.fetchall()
-
-    if rows:
-        df = pd.DataFrame(rows, columns=["Description", "Amount", "Date"])
-        st.dataframe(df)
-    else:
-        st.info("No expenses found for this user.")
-else:
-    st.info("Enter your name/email above to view your expenses.")
-
+df = pd.read_sql_query("SELECT * FROM expenses ORDER BY date DESC", conn)
+st.dataframe(df, use_container_width=True)
 
 # ------------------ SUMMARY ------------------
 st.header("📊 Summary")
