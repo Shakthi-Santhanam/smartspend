@@ -6,3 +6,5 @@ joblib
 scikit-learn
 easyocr
 torch
+pytesseract
+opencv-python-headless
